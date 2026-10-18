@@ -22,7 +22,7 @@ import { acquireTerminal, resetTerminal, isTerminalAutomationSafe, hasTerminalDr
 import { canDeliverToAgent, deliverWithAcknowledgement, checkPrecondition } from './queueDelivery';
 import { RunningToolCalls } from './runningToolCalls';
 import { OFFICE_CAST, DEFAULT_CHARACTER, HIREABLE_CAST, type OfficeCharacterName } from '@/scene/office/cast';
-import { teamMemberName, teamMemberRole, teamMemberGoal, teamAccent, teamMemberStart, rewrittenInstructions } from '../../../shared/teamPlan';
+import { teamMemberName, teamMemberRole, teamMemberGoal, teamAccent, teamMemberStart, rewrittenInstructions, didNotStartNote } from '../../../shared/teamPlan';
 import type { AgentDefinitionV2 } from '../../../shared/agentDefinition';
 import { FIRST_TASK_EDITED_MAX, withoutLegacyFirstTask } from '../../../shared/firstTask';
 import { firstTaskSection } from '../../../shared/workStyleText';
@@ -32,6 +32,7 @@ import { ENGINE_READY_EVENT } from '@/shell/useNeedsYou';
 import { seedStarterJobs } from '@/shell/seedStarterJobs';
 import { PromptSubmits, confirmSubmit } from '../../../shared/submitConfirm';
 import { isTerminalPrompt } from '../../../shared/hookEvents';
+import { cutText } from '@shared/cutText';
 
 const GOD_ID = 'god';
 /** Accent palette for MAIN-spawned (voice-hired) agents — picked deterministically
@@ -449,6 +450,11 @@ async function startBusinessTeam(config: HarnessConfig): Promise<void> {
     }
   }
   await window.cth.updateConfig({ businessTeamStarted: true, businessTeamRetry: failed }).catch(() => undefined);
+  // Who did not start goes to Michael, who tells the owner; it was only logged.
+  if (failed.length) {
+    const note = didNotStartNote(failed.map((id) => teamMemberName(defs.get(id)!)), !!retry);
+    await window.cth.hiveSend({ to: GOD_ID, act: 'inform', ...note }, 'system').catch(() => undefined);
+  }
   if (!retry) await startPickedResearch(config);
 }
 
@@ -1165,7 +1171,7 @@ export function useHive(config: HarnessConfig | null): void {
             : [];
         const id = `slack-${slack.thread_ts}-${m.id}`;
         if (existing.some((t) => t.id === id)) return; // already promoted — no dup
-        const title = m.text.length > 80 ? `${m.text.slice(0, 79)}…` : m.text;
+        const title = cutText(m.text, 80);
         const card: SlackTaskCard = {
           id,
           title,
